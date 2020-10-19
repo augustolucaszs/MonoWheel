@@ -1,3 +1,10 @@
+//#include <WiFi.h>
+//#include <ESPmDNS.h>
+//#include <WiFiUdp.h>
+//#include <ArduinoOTA.h>
+
+const char* ssid = "iPhone de Lucas"; /* coloque aqui o nome da rede wi-fi que o ESP32 deve se conectar */
+const char* password = "zanicoski"; /* coloque aqui a senha da rede wi-fi que o ESP32 deve se conectar */
 // ########################## LIBRARIES ##########################
 #include <PID_v1.h>                       // PID
 #include "I2Cdev.h"                       // I2C for MPU6050
@@ -8,7 +15,7 @@
 #define HOVER_SERIAL_BAUD   38400         // [-] Baud rate for HoverSerial (used to communicate with the hoverboard)
 #define SERIAL_BAUD         115200        // [-] Baud rate for built-in Serial (used for the Serial Monitor)
 #define START_FRAME         0xABCD        // [-] Start frme definition for reliable serial communication
-#define TIME_SEND           10            // [ms] Sending time interval
+#define TIME_SEND           20            // [ms] Sending time interval
 //#define DEBUG_RX                          // [-] Debug received data. Prints all bytes to serial (comment-out to disable)
 #define LED_BUILTIN         2             // Led GPIO 2
 #define padPin1             36
@@ -29,11 +36,13 @@ long tiempo_prev;
 
 // ########################## PID VARIABLES ##########################
 double Setpoint = 0, Input = 0, Output = 0;
+int power = 1000;
 
 // ########################## SENSOR PAD VARIABLES ##########################
 int sumpadValue1 = 0, sumpadValue2 = 0, count =1;
 int padValue1 = 0;
 int padValue2 = 0;
+int sig = 1000;
 
 typedef struct{
    uint16_t start;
@@ -44,7 +53,7 @@ typedef struct{
 SerialCommand Command;
 
 MPU6050 accelgyro;
-int kp = 60, ki = 10, kd = 1;
+float kp = 5, ki = 0.0, kd = 0.0;
 PID myPID(&Input, &Output, &Setpoint,kp,ki,kd,REVERSE);
 BluetoothSerial SerialBT;
 char command;
@@ -102,6 +111,45 @@ void Send(int16_t uSteer, int16_t uSpeed)
 
   // Write to Serial
   Serial2.write((uint8_t *) &Command, sizeof(Command)); 
+    Serial.println("Booting");
+    
+//  WiFi.mode(WIFI_STA);
+//  WiFi.begin(ssid, password);
+//  while (WiFi.waitForConnectResult() != WL_CONNECTED) {
+//    Serial.println("Connection Failed! Rebooting...");
+//    delay(5000);
+//    ESP.restart();
+//  }
+//  // Port defaults to 3232                            // ArduinoOTA.setPort(3232);
+//  // Hostname defaults to esp3232-[MAC]               // ArduinoOTA.setHostname("myesp32");
+//  // No authentication by default                     // ArduinoOTA.setPassword("admin");
+//  // Password can be set with it's md5 value as well  // MD5(admin) = 21232f297a57a5a743894a0e4a801fc3
+//  // ArduinoOTA.setPasswordHash("21232f297a57a5a743894a0e4a801fc3");
+//  ArduinoOTA.onStart([]() {
+//    String type;
+//    if (ArduinoOTA.getCommand() == U_FLASH)
+//      type = "sketch";
+//    else // U_SPIFFS
+//      type = "filesystem";
+//    // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
+//    Serial.println("Start updating " + type);
+//  });
+//  ArduinoOTA.onEnd([]() { Serial.println("\nEnd"); });
+//  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+//    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+//  });
+//  ArduinoOTA.onError([](ota_error_t error) {
+//    Serial.printf("Error[%u]: ", error);
+//    if (error == OTA_AUTH_ERROR)         Serial.println("Auth Failed");
+//    else if (error == OTA_BEGIN_ERROR)   Serial.println("Begin Failed");
+//    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+//    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+//    else if (error == OTA_END_ERROR)     Serial.println("End Failed");
+//  });
+//  ArduinoOTA.begin();
+//  Serial.println("Ready");
+//  Serial.print("IP address: ");
+//  Serial.println(WiFi.localIP());
 }
 
 // ########################## LOOP ##########################
@@ -110,7 +158,10 @@ unsigned long iTimeSend = 0;
 
 void loop(void)
 {
-  if(SerialBT.available() > 0){
+//    ArduinoOTA.handle();
+//  yield();
+  
+  if(SerialBT.available() >= 1){
     command = SerialBT.read();
     kp = myPID.GetKp();
     ki = myPID.GetKi();
@@ -118,43 +169,57 @@ void loop(void)
     String remember = "kp:" + String(kp) + " ki:" + String(ki) + " kd:" + String(kd);
     switch(command){
       case 'P':
-        kp = kp + 5;
+        kp = kp + 0.5;
         myPID.SetTunings(kp, ki, kd);
+        SerialBT.println(remember);
         break;
       case 'p':
-        kp = kp - 5;
+        kp = kp - 0.5;
         myPID.SetTunings(kp, ki, kd);
+        SerialBT.println(remember);
         break;
       case 'I':
-        ki = ki + 1;
+        ki = ki + 0.05;
         myPID.SetTunings(kp, ki, kd);
+        SerialBT.println(remember);
         break;
       case 'i':
-        ki = ki - 1;
+        ki = ki - 0.05;
         myPID.SetTunings(kp, ki, kd);
+        SerialBT.println(remember);
         break;
       case 'D':
-        kd = kd + 1;
+        kd = kd + 0.05;
         myPID.SetTunings(kp, ki, kd);
+        SerialBT.println(remember);
         break;
       case 'd':
-        kd = kd - 1;
+        kd = kd - 0.05;
         myPID.SetTunings(kp, ki, kd);
+        SerialBT.println(remember);
         break;
       case 'A':
         myPID.SetMode(AUTOMATIC);
+        sig = -1000;
         break;
       case 'M':
         Input = 0;
         Output = 0;
-        myPID.SetMode(MANUAL);
-        
+        sig = 1000;
+        myPID.SetMode(MANUAL);        
+        break;
+      case 'L':
+        power = power + 50;
+        break;
+      case 'l':
+        power = power - 50;
         break;
       case 'c':
         SerialBT.println(remember);
     }
-    SerialBT.println(remember);
   }
+  
+  myPID.SetOutputLimits(-power,power);
   unsigned long timeNow = millis();
   while(iTimeSend < 10){    
 // ########################## MPU6050 CALCULATION ##########################
@@ -169,7 +234,8 @@ void loop(void)
     tiempo_prev = millis();
     Angle[0] = 0.98 * (Angle[0] + Gy[0] * dt) + 0.02 * Acc[0];
     Angle[1] = 0.98 * (Angle[1] + Gy[1] * dt) + 0.02 * Acc[1];
-    Angle[2] = Angle[2] + Gy[2] * dt;        
+    Angle[2] = Angle[2] + Gy[2] * dt;
+       
 // ########################## END MPU6050 CALCULATION ##########################
 // ########################## PID CALCULATION ##########################
 
@@ -177,45 +243,52 @@ void loop(void)
     myPID.Compute();
 // ########################## END PID CALCULATION ##########################
 
-    digitalWrite(LED_BUILTIN, (timeNow%2000)<1000);  // Blink the LED
-    iTimeSend = millis() + TIME_SEND;
     
 // ########################## SENSOR PAD CALCULATION ##########################
 
     sumpadValue1 = analogRead(padPin1) + sumpadValue1;
     sumpadValue2 = analogRead(padPin2) + sumpadValue2;
-    count = count + 1;    
+    count = count + 1;
+        
 // ########################## END SENSOR PAD CALCULATION ##########################
+
+    digitalWrite(LED_BUILTIN, (timeNow%2000)<1000);  // Blink the LED
+    //iTimeSend = millis() + TIME_SEND;
+    iTimeSend = millis() - timeNow; //should aproximate to 10ms then get out of the loop
+    
   }    
+  
   iTimeSend = 0;
   
   padValue1 = sumpadValue1/count;
   padValue2 = sumpadValue2/count;
   
-  if((padValue1 > 3000) && (padValue2 > 3000)){
-    myPID.SetMode(AUTOMATIC);    
-    Send(0, Output);
+  if((padValue1 >= 2500) && (padValue2 >= 2500)){
+    myPID.SetMode(AUTOMATIC);
+    sig = -1000;    
+    Send(sig, Output);
+    sumpadValue1 = 0;
+    sumpadValue2 = 0;
+    count = 0;  
+  }
+  else if((padValue1 < 2500) || (padValue2 < 2500)){
+    Output = 0;
+    sig = 1000;
+    myPID.SetMode(MANUAL);
+    Send(sig, 0);
     sumpadValue1 = 0;
     sumpadValue2 = 0;
     count = 0;
-  }
-  else if((padValue1 < 3000) || (padValue2 < 3000)){
-    Input = 0;
-    Output = 0;
-    myPID.SetMode(MANUAL);
-    Send(1000, 0);
-    sumpadValue1 = 0;
-    sumpadValue2 = 0;
-    count = 0; 
-  }
-  
-  Serial.print(padValue1);
-  Serial.print(" ");
-  Serial.print(padValue2);
-  Serial.print(" ");
-  Serial.print(Input);
-  Serial.print(" ");
-  Serial.println(Output);
-
-    
+  }    
 }
+
+
+
+
+//    Serial.print(padValue1);
+//    Serial.print(" ");
+//    Serial.print(padValue2);
+//    Serial.print(" ");
+//    Serial.print(Input);
+//    Serial.print(" ");
+//    Serial.println(Output);
