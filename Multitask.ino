@@ -3,7 +3,7 @@
 #include "I2Cdev.h"                       // I2C for MPU6050
 #include "MPU6050_6Axis_MotionApps20.h"   // MPU6050
 #include "BluetoothSerial.h"
-#include <EEPROM.h>            
+//#include <EEPROM.h>            
 
 // ########################## DEFINES ##########################
 #define HOVER_SERIAL_BAUD   38400         // [-] Baud rate for HoverSerial (used to communicate with the hoverboard)
@@ -50,10 +50,10 @@ typedef struct{
    uint16_t start;
    int16_t  cmd1;
    int16_t  cmd2;
-   //int16_t  speedR_meas;
-   //int16_t  speedL_meas;
+   int16_t  speedR_meas;
+   int16_t  speedL_meas;
    int16_t  batVoltage;
-   //int16_t  boardTemp;
+   int16_t  boardTemp;
    uint16_t cmdLed;
    uint16_t checksum;
 } SerialFeedback;
@@ -70,10 +70,10 @@ typedef struct{
 SerialCommand Command;
 
 long previousMillis = 0; 
-long interval = 10;
+long interval = 15;
 
 MPU6050 accelgyro;
-float kp = 7.00, ki = 11.00, kd = 0.20, KP = 7;
+float kp = 1, ki = 11.00, kd = 0.20, KP = 7;
 PID myPID(&Input, &Output, &Setpoint,kp,ki,kd,REVERSE);
 BluetoothSerial SerialBT;
 char command;
@@ -179,7 +179,6 @@ void taskUm(void* parameter){
 //        kd = EEPROM.read(20)/10;
 //        SerialBT.println("EEPROM recovered");
 //        break;
-                       
     }
   myPID.SetTunings(kp, ki, kd);
   kp = myPID.GetKp();
@@ -188,15 +187,66 @@ void taskUm(void* parameter){
   String remember = "kp:" + String(kp) + " ki:" + String(ki) + " kd:" + String(kd);
   SerialBT.println(remember);    
   }
-    Serial.print(Input);
-    Serial.print(", ");
-    Serial.print(Output);
-    Serial.print(", ");
-    Serial.print(analogRead(padPin1));
-    Serial.print(", ");
-    Serial.print(analogRead(padPin2));
-    Serial.print(", ");
-    Serial.println(kp);    
+  if(showMsg ==1 ){
+    SerialBT.print(Input);
+    SerialBT.print(", ");
+//    SerialBT.print(Output);
+//    SerialBT.print(", ");
+//    SerialBT.print(analogRead(padPin1));
+//    SerialBT.print(", ");
+//    SerialBT.print(analogRead(padPin2));
+//    SerialBT.print(", ");
+    SerialBT.println(kp);
+  }
+  else{
+// Check for new data availability in the Serial buffer
+  if (Serial2.available()) {
+    incomingByte    = Serial2.read();                                 // Read the incoming byte
+    bufStartFrame = ((uint16_t)(incomingByte) << 8) | incomingBytePrev;   // Construct the start frame    
+  }
+  else {
+  }
+
+  // If DEBUG_RX is defined print all incoming bytes
+  // Copy received data
+  if (bufStartFrame == START_FRAME) {                     // Initialize if new data is detected
+    p     = (byte *)&NewFeedback;
+    *p++  = incomingBytePrev;
+    *p++  = incomingByte;
+    idx   = 2;  
+  } else if (idx >= 2 && idx < sizeof(SerialFeedback)) {  // Save the new received data
+    *p++  = incomingByte; 
+    idx++;
+  } 
+  
+  // Check if we reached the end of the package
+  if (idx == sizeof(SerialFeedback)) {    
+    uint16_t checksum;
+    checksum = (uint16_t)(NewFeedback.start ^ NewFeedback.cmd1 ^ NewFeedback.cmd2 ^ NewFeedback.speedR_meas ^ NewFeedback.speedL_meas
+          ^ NewFeedback.batVoltage ^ NewFeedback.boardTemp ^ NewFeedback.cmdLed);
+  
+    // Check validity of the new data
+    if (NewFeedback.start == START_FRAME && checksum == NewFeedback.checksum) {
+      // Copy the new data
+      memcpy(&Feedback, &NewFeedback, sizeof(SerialFeedback));
+      
+      // Print data to built-in Serial
+      SerialBT.print("1: ");   SerialBT.print(Feedback.cmd1);
+      SerialBT.print(" 2: ");  SerialBT.print(Feedback.cmd2);
+      SerialBT.print(" 3: ");  SerialBT.print(Feedback.speedR_meas);
+      SerialBT.print(" 4: ");  SerialBT.print(Feedback.speedL_meas);
+      SerialBT.print(" 5: ");  SerialBT.println(Feedback.batVoltage);
+      SerialBT.print(" 6: ");  SerialBT.print(Feedback.boardTemp);
+      SerialBT.print(" 7: ");  SerialBT.print(Feedback.cmdLed);
+    } else {
+      Serial.println("Non-valid data skipped");
+    }
+    idx = 0;  // Reset the index (it prevents to enter in this if condition in the next cycle)
+  }
+  
+  // Update previous states
+  incomingBytePrev  = incomingByte;    
+  }
   }
 }
 // ########################## SETUP ##########################
@@ -240,13 +290,13 @@ void setup()
 
     myPID.SetOutputLimits(-1000,1000);
     myPID.SetMode(MANUAL);
-    myPID.SetSampleTime(5);
+    myPID.SetSampleTime(10);
     
 // ########################## PID END ##########################
 
     SerialBT.begin("MonoWheel"); //Bluetooth device name
     xTaskCreate(taskUm,"taskUm",10000,NULL,0,NULL);
-    
+    delay(500);
 }
 
 // ########################## SEND ##########################
@@ -264,8 +314,6 @@ void Send(int16_t uSteer, int16_t uSpeed)
   unsigned long timeNow = 0;
 void loop(void)
   {
-   
-
 // ########################## MPU6050 CALCULATION ##########################
     accelgyro.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
     Acc[1] = atan(-1 * (ax / A_R) / sqrt(pow((ay / A_R), 2) + pow((az / A_R), 2))) * RAD_TO_DEG;
@@ -281,32 +329,28 @@ void loop(void)
   // ########################## PID CALCULATION ##################################
     Input = Angle[0];
 
-      if((Input >= -7) && (Input <= -5))    {kp = (((Input*Input)/3) - 1);}
-      else if((Input > -5) && (Input < 5))  {kp = KP;}
-      else if((Input >= 5) && (Input <= 7)) {kp = (((Input*Input)/3) -2);}
-      else if((Input < -7) && (Input > 7))  {kp = 15;}
+      if((Input >= -15) && (Input <= 15))    {kp = ((Input*Input)/8);}
+//      else if((Input > -5) && (Input < 5))  {kp = KP;}
+//      else if((Input >= 5) && (Input <= 9)) {kp = (((Input*Input)/5) -2);}
+      else if((Input < -15) && (Input > 15))  {kp = 30;}
 
     myPID.SetTunings(kp, ki, kd);
     myPID.Compute();
     
 //  // ########################## SENSOR PAD CALCULATION ###########################
-//    if(count >= 100){
-//      padValue1 = sumpadValue1/count;
-//      padValue2 = sumpadValue2/count;  
-//      sumpadValue1 = 0;
-//      sumpadValue2 = 0;
-//      count = 0;
-//    }
-//    else{
-//      sumpadValue1 = analogRead(padPin1) + sumpadValue1;
-//      sumpadValue2 = analogRead(padPin2) + sumpadValue2;
-//      count++;
-//    } 
-
-     padValue1 = analogRead(padPin1);
-     padValue2 = analogRead(padPin2); 
-      
-  // ########################## END SENSOR PAD CALCULATION #######################
+    if(count >= 10){
+      padValue1 = sumpadValue1/count;
+      padValue2 = sumpadValue2/count;  
+      sumpadValue1 = 0;
+      sumpadValue2 = 0;
+      count = 0;
+    }
+    else{
+      sumpadValue1 = analogRead(padPin1) + sumpadValue1;
+      sumpadValue2 = analogRead(padPin2) + sumpadValue2;
+      count++;
+    } 
+// ########################## END SENSOR PAD CALCULATION #######################
     unsigned long currentMillis = millis(); //should aproximate to 10ms then get out of the loop    
     if(currentMillis - previousMillis > interval){
       previousMillis = currentMillis;
@@ -322,7 +366,8 @@ void loop(void)
         }
         else if((padValue1 < 1700) || (padValue2 < 1700)){
           myPID.SetMode(MANUAL);
-          Send(1000, 0);
+          Output = 0;
+          Send(1000, Output);
           //Serial.println("PAD Disable");
         }    
       }
